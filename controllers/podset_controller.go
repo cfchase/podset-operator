@@ -18,20 +18,20 @@ package controllers
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	appsv1alpha1 "github.com/cfchase/podset-operator/api/v1alpha1"
+	appv1alpha1 "github.com/cfchase/podset-operator/api/v1alpha1"
 )
 
 // PodSetReconciler reconciles a PodSet object
@@ -41,18 +41,17 @@ type PodSetReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=apps.opendatahub.io,resources=podsets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apps.opendatahub.io,resources=podsets/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=app.example.com,resources=podsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=app.example.com,resources=podsets/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=*;
 
 func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.TODO()
 	log := r.Log.WithValues("podset", req.NamespacedName)
-
 	log.Info("Reconciling PodSet")
-	instance := &appsv1alpha1.PodSet{}
-	err := r.Get(ctx, req.NamespacedName, instance)
 
+	// Fetch the PodSet instance
+	instance := &appv1alpha1.PodSet{}
+	err := r.Get(context.TODO(), req.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -64,6 +63,7 @@ func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
+	// List all pods owned by this PodSet instance
 	podSet := instance
 	podList := &corev1.PodList{}
 	lbs := map[string]string{
@@ -72,7 +72,7 @@ func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 	labelSelector := labels.SelectorFromSet(lbs)
 	listOps := &client.ListOptions{Namespace: podSet.Namespace, LabelSelector: labelSelector}
-	if err = r.List(ctx, podList, listOps); err != nil {
+	if err = r.List(context.TODO(), podList, listOps); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -93,24 +93,25 @@ func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	// Update the status if necessary
-	status := appsv1alpha1.PodSetStatus{
+	status := appv1alpha1.PodSetStatus{
 		PodNames: availableNames,
 	}
 	if !reflect.DeepEqual(podSet.Status, status) {
 		podSet.Status = status
-		err = r.Status().Update(ctx, podSet)
+		err = r.Status().Update(context.TODO(), podSet)
 		if err != nil {
 			log.Error(err, "Failed to update PodSet status")
 			return reconcile.Result{}, err
 		}
 	}
 
+	// too many pods
 	if numAvailable > podSet.Spec.Replicas {
 		log.Info("Scaling down pods", "Currently available", numAvailable, "Required replicas", podSet.Spec.Replicas)
 		diff := numAvailable - podSet.Spec.Replicas
 		dpods := available[:diff]
 		for _, dpod := range dpods {
-			err = r.Delete(ctx, &dpod)
+			err = r.Delete(context.TODO(), &dpod)
 			if err != nil {
 				log.Error(err, "Failed to delete pod", "pod.name", dpod.Name)
 				return reconcile.Result{}, err
@@ -119,6 +120,7 @@ func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{Requeue: true}, nil
 	}
 
+	// too few pods
 	if numAvailable < podSet.Spec.Replicas {
 		log.Info("Scaling up pods", "Currently available", numAvailable, "Required replicas", podSet.Spec.Replicas)
 		// Define a new Pod object
@@ -127,7 +129,7 @@ func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		if err := controllerutil.SetControllerReference(podSet, pod, r.Scheme); err != nil {
 			return reconcile.Result{}, err
 		}
-		err = r.Create(ctx, pod)
+		err = r.Create(context.TODO(), pod)
 		if err != nil {
 			log.Error(err, "Failed to create pod", "pod.name", pod.Name)
 			return reconcile.Result{}, err
@@ -139,8 +141,8 @@ func (r *PodSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 }
 
 // newPodForCR returns a busybox pod with the same name/namespace as the cr
-func newPodForCR(cr *appsv1alpha1.PodSet) *corev1.Pod {
-	labels := map[string]string{
+func newPodForCR(cr *appv1alpha1.PodSet) *corev1.Pod {
+	lbls := map[string]string{
 		"app":     cr.Name,
 		"version": "v0.1",
 	}
@@ -148,7 +150,7 @@ func newPodForCR(cr *appsv1alpha1.PodSet) *corev1.Pod {
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: cr.Name + "-pod",
 			Namespace:    cr.Namespace,
-			Labels:       labels,
+			Labels:       lbls,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
@@ -164,6 +166,7 @@ func newPodForCR(cr *appsv1alpha1.PodSet) *corev1.Pod {
 
 func (r *PodSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appsv1alpha1.PodSet{}).
+		For(&appv1alpha1.PodSet{}).
+		Owns(&corev1.Pod{}).
 		Complete(r)
 }

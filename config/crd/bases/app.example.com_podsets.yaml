@@ -6,9 +6,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.2.5
   creationTimestamp: null
-  name: podsets.apps.opendatahub.io
+  name: podsets.app.example.com
 spec:
-  group: apps.opendatahub.io
+  group: app.example.com
   names:
     kind: PodSet
     listKind: PodSetList
@@ -38,6 +38,8 @@ spec:
           properties:
             replicas:
               format: int32
+              maximum: 10
+              minimum: 0
               type: integer
           required:
           - replicas

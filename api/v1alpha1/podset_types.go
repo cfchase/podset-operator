@@ -28,6 +28,9 @@ type PodSetSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+
 	Replicas int32 `json:"replicas"`
 }
 
